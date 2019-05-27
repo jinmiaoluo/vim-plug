@@ -84,23 +84,46 @@
 " OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 " WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+"Inside functions global variables are accessed with "g:".  Omitting this will
+"access a variable local to a function.	But "g:" can also be used in any other
+"place if you like.
+"exist function usage: the result is a Number, which is |TRUE| if {expr} is defined, zero otherwise.
 if exists('g:loaded_plug')
   finish
 endif
 let g:loaded_plug = 1
 
+"save default cpo option value to script varible
 let s:cpo_save = &cpo
+
+"set cpo option to default value for vim
 set cpo&vim
 
 let s:plug_src = 'https://github.com/junegunn/vim-plug.git'
+"get the value of 'plug_tab' key from current script. return -1 if item is not available.
 let s:plug_tab = get(s:, 'plug_tab', -1)
 let s:plug_buf = get(s:, 'plug_buf', -1)
+"The result is a Number, which is 1 if the feature {feature} is
+"supported, zero otherwise.
 let s:mac_gui = has('gui_macvim') && has('gui_running')
 let s:is_win = has('win32')
 let s:nvim = has('nvim-0.2') || (has('nvim') && exists('*jobwait') && !s:is_win)
 let s:vim8 = has('patch-8.0.0039') && exists('*job_start')
+
+" resolve function:
+"repeat resolving symbolic links in all path
+"components of {filename} and return the simplified result.
+"To cope with link cycles, resolving of symbolic links is
+"stopped after 100 iterations.
+
+" expand function:
+"Expand wildcards and the following special keywords in {expr}. 'wildignorecase' applies.
+"<sfile>		sourced script file or function name
+":p		expand to full path
 let s:me = resolve(expand('<sfile>:p'))
 let s:base_spec = { 'branch': 'master', 'frozen': 0 }
+" type function:
+"The result is a Number representing the type of {expr}.
 let s:TYPE = {
 \   'string':  type(''),
 \   'list':    type([]),
@@ -110,17 +133,34 @@ let s:TYPE = {
 let s:loaded = get(s:, 'loaded', {})
 let s:triggers = get(s:, 'triggers', {})
 
+" To redefine a function that already exists, use the ! for the ":function"
+" a:000 is a list with all arguments parsed by ...
 function! plug#begin(...)
   if a:0 > 0
     let s:plug_home_org = a:1
+
+" get file path of current plugin
+"Make file name a full path.  Must be the first modifier.  Also
+"changes "~/" (and "~user/" for Unix) to the path for the home
+"directory.  If the name is a directory a path separator is
+"added at the end.  For a file name that does not exist and
+"does not have an absolute path the result is unpredictable.
+"On MS-Windows an 8.3 filename is expanded to the long name.
+
     let home = s:path(fnamemodify(expand(a:1), ':p'))
   elseif exists('g:plug_home')
     let home = s:path(g:plug_home)
   elseif !empty(&rtp)
+" split string into array, let home = ~/.vim/plugged
     let home = s:path(split(&rtp, ',')[0]) . '/plugged'
   else
     return s:err('Unable to determine plug home. Try calling plug#begin() with a path argument.')
   endif
+"fnamemodify(home, ':t') -> parse file name from absolute path string
+":t	Tail of the file name (last component of the name).  Must
+"fnamemodify(home, ':h') -> parse file path from absolute path string
+":h	Head of the file name (the last component and any separators
+"'==#' means equal, match case
   if fnamemodify(home, ':t') ==# 'plugin' && fnamemodify(home, ':h') ==# s:first_rtp
     return s:err('Invalid plug home. '.home.' is a standard Vim runtime path and is not allowed.')
   endif
@@ -135,13 +175,29 @@ function! plug#begin(...)
 endfunction
 
 function! s:define_commands()
+" define or redefine a command
+"-nargs=+    Arguments must be supplied, but any number are allowed
+"-bang	    The command can take a ! modifier (like :q or :w)
+"-bar	    The command can be followed by a "|" and another command. A "|" inside the command argument is not allowed then. Also checks for a " to start a comment.
+"-complete=customlist,{func} custom completion, defined via {func}
+"<args>  The command arguments, exactly as supplied (but as
+"				noted above, any count or register can consume some
+"				of the arguments, which are then not part of <args>).
+
   command! -nargs=+ -bar Plug call plug#(<args>)
   if !executable('git')
     return s:err('`git` executable not found. Most commands will not be available. To suppress this message, prepend `silent!` to `call plug#begin(...)`.')
   endif
+" s:names function:
+"For the "customlist" argument, the function should return the completion
+"candidates as a Vim List
+" PluginInstall and PlugUpdate command can specify args with completion
   command! -nargs=* -bar -bang -complete=customlist,s:names PlugInstall call s:install(<bang>0, [<f-args>])
   command! -nargs=* -bar -bang -complete=customlist,s:names PlugUpdate  call s:update(<bang>0, [<f-args>])
   command! -nargs=0 -bar -bang PlugClean call s:clean(<bang>0)
+
+	":exe[cute] {expr1} .. Executes the string that results from the evaluation
+	"											 of {expr1} as an Ex command.
   command! -nargs=0 -bar PlugUpgrade if s:upgrade() | execute 'source' s:esc(s:me) | endif
   command! -nargs=0 -bar PlugStatus  call s:status()
   command! -nargs=0 -bar PlugDiff    call s:diff()
@@ -308,6 +364,7 @@ function! s:reload_plugins()
   endfor
 endfunction
 
+" trim redundant path separator
 function! s:trim(str)
   return substitute(a:str, '[\/]\+$', '', '')
 endfunction
@@ -339,6 +396,7 @@ if s:is_win
     return s:path(a:spec.dir . get(a:spec, 'rtp', ''))
   endfunction
 
+" if current plugin used on windows. convert path
   function! s:path(path)
     return s:trim(substitute(a:path, '/', '\', 'g'))
   endfunction
@@ -355,6 +413,7 @@ else
     return s:dirpath(a:spec.dir . get(a:spec, 'rtp', ''))
   endfunction
 
+" if current plugin used on platform except windows. just trim it
   function! s:path(path)
     return s:trim(a:path)
   endfunction
@@ -935,10 +994,29 @@ function! s:retry()
         \ extend(copy(s:update.errors), [s:update.threads]))
 endfunction
 
+"The result is a Number, which is 1 if |Dictionary| {dict} has
+"an entry with key {key}.  Zero otherwise.
 function! s:is_managed(name)
   return has_key(g:plugs[a:name], 'uri')
 endfunction
 
+" keys function:
+"Return a |List| with all the keys of {dict}.  The |List| is in arbitrary order.
+
+" stridx function:
+"The result is a Number, which gives the byte index in
+"{haystack} of the first occurrence of the String {needle}.
+"If {start} is specified, the search starts at index {start}.
+"This can be used to find a second match: >
+
+" filter function:
+"{expr1} must be a |List| or a |Dictionary|.
+"For each item in {expr1} evaluate {expr2} and when the result
+"is zero remove the item from the |List| or |Dictionary|.
+"{expr2} must be a |string| or |Funcref|.
+
+" sort function:
+"Sort the items in {list} in-place.  Returns {list}.
 function! s:names(...)
   return sort(filter(keys(g:plugs), 'stridx(v:val, a:1) == 0 && s:is_managed(v:val)'))
 endfunction
